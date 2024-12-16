@@ -1,0 +1,65 @@
+import pdfplumber
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.chains import RetrievalQA
+from langchain.chat_models import ChatOpenAI
+from transformers import pipeline
+
+# Step 1: Extract Text from PDF
+def extract_text_from_pdf(pdf_path):
+    with pdfplumber.open(pdf_path) as pdf:
+        text = ''
+        for page in pdf.pages:
+            text += page.extract_text() or ''
+    return text
+
+# Step 2: Split Text into Chunks
+def split_text_into_chunks(text, chunk_size=1000):
+    text_splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=200)
+    chunks = text_splitter.split_text(text)
+    return chunks
+
+# Step 3: Create FAISS Index
+def create_faiss_index(text_chunks):
+    # Initialize HuggingFace embeddings
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    # Build FAISS index from text chunks
+    faiss_index = FAISS.from_texts(text_chunks, embeddings)
+    return faiss_index
+
+# Step 4: Build RAG Pipeline
+def setup_rag_pipeline(faiss_index):
+    # Load LLM
+    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
+
+    # Set up Retrieval-based QA chain
+    retriever = faiss_index.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever, return_source_documents=True)
+    return qa_chain
+
+# Main Function: Chat with PDF
+def chat_with_pdf(pdf_path, query):
+    # Step 1: Extract text from the PDF
+    text = extract_text_from_pdf(pdf_path)
+    
+    # Step 2: Split text into chunks
+    chunks = split_text_into_chunks(text)
+    
+    # Step 3: Create FAISS index
+    faiss_index = create_faiss_index(chunks)
+    
+    # Step 4: Setup RAG pipeline
+    rag_pipeline = setup_rag_pipeline(faiss_index)
+    
+    # Step 5: Generate Response
+    result = rag_pipeline.run(query)
+    return result
+
+# Example Usage
+if __name__ == "__main__":
+    pdf_path = "your_pdf_file.pdf"  # Replace with your PDF file path
+    query = "What are the key points in this document?"
+    
+    response = chat_with_pdf(pdf_path, query)
+    print("Response:", response)
